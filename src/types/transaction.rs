@@ -1,28 +1,63 @@
-use serde::{Serialize,Deserialize};
-use ring::signature::{Ed25519KeyPair, Signature, KeyPair, VerificationAlgorithm, EdDSAParameters};
-use rand::Rng;
+use super::address::Address;
+use rand::{thread_rng, Rng};
+use ring::signature::{
+    Ed25519KeyPair, EdDSAParameters, KeyPair, Signature, UnparsedPublicKey, VerificationAlgorithm,
+    ED25519,
+};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct Transaction {
+    sender: Address,
+    receiver: Address,
+    value: u8,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct SignedTransaction {
+    t: Transaction,
+    sig: Vec<u8>,
+    pub_key: Vec<u8>,
 }
 
 /// Create digital signature of a transaction
 pub fn sign(t: &Transaction, key: &Ed25519KeyPair) -> Signature {
-    unimplemented!()
+    // first generate a key pair(private key, public key)
+    key.sign(&[t.value])
 }
 
 /// Verify digital signature of a transaction, using public key instead of secret key
 pub fn verify(t: &Transaction, public_key: &[u8], signature: &[u8]) -> bool {
-    unimplemented!()
+    let peer_public_key = UnparsedPublicKey::new(&ED25519, public_key);
+
+    peer_public_key.verify(&[t.value], signature).is_ok()
 }
 
 #[cfg(any(test, test_utilities))]
 pub fn generate_random_transaction() -> Transaction {
-    unimplemented!()
+    let mut count = 0;
+    let mut addr_arr_sender: [u8; 20] = [0; 20];
+    let mut addr_arr_receiver: [u8; 20] = [0; 20];
+
+    let mut rng = thread_rng();
+
+    loop {
+        addr_arr_sender[count] = rng.gen();
+        addr_arr_receiver[count] = rng.gen();
+
+        if (count >= 19) {
+            break;
+        }
+        count += 1;
+    }
+    let addr_sender = Address(addr_arr_sender);
+    let addr_receiver = Address(addr_arr_receiver);
+    let val: u8 = rng.gen();
+    Transaction {
+        sender: addr_sender,
+        receiver: addr_receiver,
+        value: val,
+    }
 }
 
 // DO NOT CHANGE THIS COMMENT, IT IS FOR AUTOGRADER. BEFORE TEST
@@ -32,7 +67,6 @@ mod tests {
     use super::*;
     use crate::types::key_pair;
     use ring::signature::KeyPair;
-
 
     #[test]
     fn sign_verify() {
