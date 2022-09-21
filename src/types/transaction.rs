@@ -50,8 +50,8 @@ pub fn generate_random_transaction() -> Transaction {
         }
         count += 1;
     }
-    let addr_sender = Address(addr_arr_sender);
-    let addr_receiver = Address(addr_arr_receiver);
+    let addr_sender = Address::new(addr_arr_sender);
+    let addr_receiver = Address::new(addr_arr_receiver);
     let val: u8 = rng.gen();
     Transaction {
         sender: addr_sender,

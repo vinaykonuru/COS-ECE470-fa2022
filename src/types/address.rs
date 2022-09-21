@@ -3,8 +3,13 @@ use serde::{Deserialize, Serialize};
 
 // 20-byte address
 #[derive(Eq, PartialEq, Serialize, Deserialize, Clone, Hash, Default, Copy)]
-pub struct Address(pub [u8; 20]);
+pub struct Address([u8; 20]);
 
+impl Address {
+    pub fn new(addr: [u8; 20]) -> Self {
+        Address(addr)
+    }
+}
 impl std::convert::From<&[u8; 20]> for Address {
     fn from(input: &[u8; 20]) -> Address {
         let mut buffer: [u8; 20] = [0; 20];
