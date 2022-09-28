@@ -36,14 +36,14 @@ impl MerkleTree<H256> {
         let mut nodes: Vec<Node<H256>> = vec![];
         let tree_length: usize;
 
-        if (data.len() % 2 != 0) {
+        if data.len() % 2 != 0 {
             tree_length = data.len() + 1;
         } else {
             tree_length = data.len();
         }
         // create nodes of all data
         loop {
-            if (nodes.len() == data.len()) {
+            if nodes.len() == data.len() {
                 break;
             }
             nodes.push(Node::new(None, None, data[count].hash()));
@@ -72,7 +72,7 @@ impl MerkleTree<H256> {
                 index_current += 2;
                 index_next += 1;
             }
-            if (len % 2 != 0) {
+            if len % 2 != 0 {
                 len = len / 2 + 1;
             } else {
                 len /= 2;
@@ -129,7 +129,7 @@ pub fn verify(root: &H256, datum: &H256, proof: &[H256], index: usize, leaf_size
     let mut new_hash: H256 = *datum;
     let mut level_size: usize;
     // in case we duplicated the last leaf to make a complete tree
-    if (leaf_size % 2 == 0) {
+    if leaf_size % 2 == 0 {
         level_size = leaf_size;
     } else {
         level_size = leaf_size + 1;
@@ -146,9 +146,6 @@ pub fn verify(root: &H256, datum: &H256, proof: &[H256], index: usize, leaf_size
         level_size /= 2;
         level += 1;
     }
-    println!("ROOT: {:?}", *root);
-    println!("NEW HASH: {:?}", new_hash);
-
     new_hash == *root
 }
 // DO NOT CHANGE THIS COMMENT, IT IS FOR AUTOGRADER. BEFORE TEST
@@ -164,6 +161,10 @@ mod tests {
                 (hex!("0a0b0c0d0e0f0e0d0a0b0c0d0e0f0e0d0a0b0c0d0e0f0e0d0a0b0c0d0e0f0e0d")).into(),
                 (hex!("0101010101010101010101010101010101010101010101010101010101010202")).into(),
                 (hex!("0a0b0c0d0e0f0e0d0a0b0c0d0e0f0e0d0a0b0c0d0e0f0e0d0a0b0c0d0e0f0e0d")).into(),
+                (hex!("0a0b0c0d0e0f0e0d0a0b0c0d0e0f0e0d0a0b0c0d0e0f0e0d0a0b0c0d0e0f0e0d")).into(),
+                (hex!("0a0b0c0d0e0f0e0d0a0b0c0d0e0f0e0d0a0b0c0d0e0f0e0d0a0b0c0d0e0f0e0d")).into(),
+                (hex!("0101010101010101010101010101010101010101010101010101010101010202")).into(),
+                (hex!("0a0b0c0d0e0f0e0d0a0b0c0d0e0f0e0d0a0b0c0d0e0f0e0d0a0b0c0d0e0f0e0d")).into(),
             ]
         }};
     }
@@ -175,7 +176,7 @@ mod tests {
         let root = merkle_tree.root();
         assert_eq!(
             root,
-            (hex!("14b5bfc1bba8ef07311923e2ad5544d38ca752cd55fea4339531ed0f6ed434b6")).into()
+            (hex!("375b0f2835fce8d166b048de307c1b726d60ca9abec3d5f7f0b47a4810ac5577")).into()
         );
         // "b69566be6e1720872f73651d1851a0eae0060a132cf0f64a0ffaea248de6cba0" is the hash of
         // "0a0b0c0d0e0f0e0d0a0b0c0d0e0f0e0d0a0b0c0d0e0f0e0d0a0b0c0d0e0f0e0d"
@@ -194,6 +195,7 @@ mod tests {
         assert_eq!(
             proof,
             vec![
+                hex!("14b5bfc1bba8ef07311923e2ad5544d38ca752cd55fea4339531ed0f6ed434b6").into(),
                 hex!("8c56ff4c190d4f6cd98b87661e77da02ce4c1436de294382278bfb915c30576c").into(),
                 hex!("965b093a75a75895a351786dd7a188515173f6928a8af8c9baa4dcff268a4f0f").into()
             ]

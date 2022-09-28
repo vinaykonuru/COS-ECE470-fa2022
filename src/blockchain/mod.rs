@@ -1,13 +1,49 @@
-use crate::types::block::Block;
-use crate::types::hash::H256;
+use crate::types::block::{Block, Content, Header};
+use crate::types::hash::{Hashable, H256};
+use rand::{thread_rng, Rng};
+use std::collections::HashMap;
+use std::time::SystemTime;
 
 pub struct Blockchain {
+    chain: HashMap<H256, Block>,
+    head: H256,
 }
 
 impl Blockchain {
     /// Create a new blockchain, only containing the genesis block
     pub fn new() -> Self {
-        Self {}
+        let mut rng = thread_rng();
+        // random nonce(doesn't have to solve the puzzle for the genesis according to Office Hours)
+        let nonce: u32 = rng.gen();
+
+        // random parent(okay according to Office Hours)
+        let mut parent: H256 = [0; 32].into();
+        parent = parent.hash();
+
+        // empty root as well, genesis stores no data right now
+        let mut merkle_root: H256 = [0; 32].into();
+        merkle_root = merkle_root.hash();
+        // arbitrary difficulty
+        let difficulty: H256 = [5; 32].into();
+        // current timestamp
+        let timestamp = SystemTime::now();
+        let mut chain: HashMap<H256, Block> = HashMap::new();
+        let genesis = Block::new(
+            parent,
+            nonce,
+            SystemTime::now(),
+            difficulty,
+            merkle_root,
+            vec![],
+        );
+        let genesis_serial: Vec<u8> = bincode::serialize(&genesis).unwrap();
+        let genesis_hash: H256 =
+            ring::digest::digest(&ring::digest::SHA256, &genesis_serial).into();
+        chain.insert(genesis_hash, genesis);
+        Self {
+            chain: HashMap::new(),
+            head: genesis_hash,
+        }
     }
 
     /// Insert a block into blockchain
@@ -42,7 +78,6 @@ mod tests {
         let block = generate_random_block(&genesis_hash);
         blockchain.insert(&block);
         assert_eq!(blockchain.tip(), block.hash());
-
     }
 }
 

@@ -1,4 +1,5 @@
 use super::address::Address;
+use super::hash::{Hashable, H256};
 use rand::{thread_rng, Rng};
 use ring::signature::{
     Ed25519KeyPair, EdDSAParameters, KeyPair, Signature, UnparsedPublicKey, VerificationAlgorithm,
@@ -19,7 +20,12 @@ pub struct SignedTransaction {
     sig: Vec<u8>,
     pub_key: Vec<u8>,
 }
-
+impl Hashable for SignedTransaction {
+    fn hash(&self) -> H256 {
+        let bytes: Vec<u8> = bincode::serialize(&self).unwrap();
+        ring::digest::digest(&ring::digest::SHA256, &bytes).into()
+    }
+}
 /// Create digital signature of a transaction
 pub fn sign(t: &Transaction, key: &Ed25519KeyPair) -> Signature {
     // first generate a key pair(private key, public key)
