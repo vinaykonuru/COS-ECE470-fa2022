@@ -1,21 +1,27 @@
+use crate::blockchain::Blockchain;
+use crate::network::server::Handle as ServerHandle;
+use crate::types::block::Block;
 use crossbeam::channel::{unbounded, Receiver, Sender, TryRecvError};
 use log::{debug, info};
-use crate::types::block::Block;
-use crate::network::server::Handle as ServerHandle;
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 #[derive(Clone)]
 pub struct Worker {
+    blockchain: Arc<Mutex<Blockchain>>,
     server: ServerHandle,
     finished_block_chan: Receiver<Block>,
 }
 
 impl Worker {
     pub fn new(
+        blockchain: &Arc<Mutex<Blockchain>>,
         server: &ServerHandle,
         finished_block_chan: Receiver<Block>,
     ) -> Self {
+        let blockchain = Arc::clone(blockchain);
         Self {
+            blockchain: blockchain,
             server: server.clone(),
             finished_block_chan,
         }
@@ -33,8 +39,13 @@ impl Worker {
 
     fn worker_loop(&self) {
         loop {
-            let _block = self.finished_block_chan.recv().expect("Receive finished block error");
+            let _block = self
+                .finished_block_chan
+                .recv()
+                .expect("Receive finished block error");
             // TODO for student: insert this finished block to blockchain, and broadcast this block hash
+            self.blockchain.lock().unwrap().insert(&_block);
+            // broadcasting in another assignment
         }
     }
 }

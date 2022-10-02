@@ -35,7 +35,18 @@ impl MerkleTree<H256> {
         let mut count = 0;
         let mut nodes: Vec<Node<H256>> = vec![];
         let tree_length: usize;
-
+        if data.len() == 0 {
+            let zero_hash: H256 = [0; 32].into();
+            let zero_node = Node {
+                left_node: None,
+                right_node: None,
+                hash: zero_hash,
+            };
+            return MerkleTree {
+                head: zero_node,
+                length: 0,
+            };
+        }
         if data.len() % 2 != 0 {
             tree_length = data.len() + 1;
         } else {
