@@ -11,7 +11,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct Block {
     header: Header,
     content: Content,
-    height: usize,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Header {
@@ -49,7 +48,6 @@ impl Block {
         difficulty: H256,
         merkle_root: H256,
         content: Vec<SignedTransaction>,
-        height: usize,
     ) -> Self {
         let header = Header {
             parent: parent,
@@ -59,12 +57,7 @@ impl Block {
             merkle_root: merkle_root,
         };
         let content = Content { content };
-        // let height: usize = parent_height + 1;
-        Self {
-            header,
-            content,
-            height,
-        }
+        Self { header, content }
     }
     pub fn get_parent(&self) -> H256 {
         self.header.parent
@@ -72,12 +65,6 @@ impl Block {
 
     pub fn get_difficulty(&self) -> H256 {
         self.header.difficulty
-    }
-    pub fn set_height(&mut self, height: usize) {
-        self.height = height;
-    }
-    pub fn get_height(&self) -> usize {
-        self.height
     }
 }
 
@@ -91,7 +78,6 @@ pub fn generate_random_block(parent: &H256) -> Block {
     let mut empty_root: H256 = [0; 32].into();
     empty_root = empty_root.hash();
     // arbitrary difficulty
-    let height = 1;
     let difficulty: H256 = [5; 32].into();
     // current timestamp
     let timestamp: u128 = SystemTime::now()
@@ -110,6 +96,5 @@ pub fn generate_random_block(parent: &H256) -> Block {
     Block {
         header: header,
         content: content,
-        height,
     }
 }

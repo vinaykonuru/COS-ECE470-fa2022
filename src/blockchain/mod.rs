@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Blockchain {
-    chain: HashMap<H256, Block>,
+    chain: HashMap<H256, (Block, usize)>,
     head: Block,
 }
 
@@ -28,7 +28,7 @@ impl Blockchain {
         // current timestamp
         let timestamp = SystemTime::now();
         let height = 0;
-        let mut chain: HashMap<H256, Block> = HashMap::new();
+        let mut chain: HashMap<H256, (Block, usize)> = HashMap::new();
         let genesis = Block::new(
             parent,
             nonce,
@@ -39,20 +39,18 @@ impl Blockchain {
             difficulty,
             merkle_root,
             vec![],
-            height,
         );
-        chain.insert(genesis.hash(), genesis.clone());
-        // OFFICE HOURS: SHOULD I CLONE HERE?
+        chain.insert(genesis.hash(), (genesis.clone(), height));
         Self {
             chain: chain,
             head: genesis.clone(),
         }
     }
     pub fn get_block(&self, block_hash: &H256) -> Block {
-        let block: Block = self.chain.get(block_hash).unwrap().clone();
+        let block: Block = self.chain.get(block_hash).unwrap().0.clone();
         block
     }
-    pub fn get_height(&self, block: &Block) -> usize {
+    fn get_height(&self, block: &Block) -> usize {
         // let genesis_hash: H256 = [0; 32].into();
         // let mut curr_block = block.clone();
         // let mut height = 0;
@@ -63,14 +61,15 @@ impl Blockchain {
         //     height += 1;
         //     curr_block = self.get_block(&curr_block.get_parent());
         // }
-        block.get_height()
+        self.chain.get(&block.hash()).unwrap().1
     }
     /// Insert a block into blockchain
     pub fn insert(&mut self, block: &Block) {
-        // let tip_height: usize = self.get_height(&self.head);
         let tip_height: usize = self.get_tip_height();
-        let block_height: usize = block.get_height();
-        self.chain.insert(block.hash(), block.clone());
+        let parent_height: usize = self.chain.get(&block.get_parent()).unwrap().1;
+        let block_height: usize = parent_height + 1;
+        self.chain
+            .insert(block.hash(), (block.clone(), block_height));
         // rule = only make the fork the new longest chain if the fork tip is strictly longer than the current tip
         if self.tip() == block.get_parent() || block_height > tip_height {
             self.head = block.clone();
@@ -82,7 +81,7 @@ impl Blockchain {
         self.head.hash()
     }
     pub fn get_tip_height(&self) -> usize {
-        self.head.get_height()
+        self.chain.get(&self.tip()).unwrap().1
     }
     /// Get all blocks' hashes of the longest chain, ordered from genesis to the tip
     pub fn all_blocks_in_longest_chain(&self) -> Vec<H256> {
@@ -99,7 +98,7 @@ impl Blockchain {
             if count == longest_chain_len - 1 {
                 break;
             }
-            curr_block = self.chain.get(&parent_hash).unwrap().clone();
+            curr_block = self.chain.get(&parent_hash).unwrap().0.clone();
             count += 1;
         }
         list
@@ -118,9 +117,9 @@ mod tests {
     fn insert_one() {
         let mut blockchain = Blockchain::new();
         let genesis_hash = blockchain.tip();
-        let mut block = generate_random_block(&genesis_hash);
-        block.set_height(blockchain.get_block(&block.get_parent()).get_height() + 1);
+        let block = generate_random_block(&genesis_hash);
         blockchain.insert(&block);
+        println!("Height: {}", blockchain.chain.get(&block.hash()).unwrap().1);
         assert_eq!(blockchain.tip(), block.hash());
     }
     #[test]
@@ -134,8 +133,6 @@ mod tests {
             }
             curr_tip = blockchain.tip();
             let mut block = generate_random_block(&curr_tip);
-            block.set_height(blockchain.get_block(&block.get_parent()).get_height() + 1);
-
             blockchain.insert(&block);
             count += 1;
         }
@@ -146,29 +143,24 @@ mod tests {
     fn insert_fork() {
         let mut blockchain = Blockchain::new();
         let genesis_hash = blockchain.tip();
-        let mut block = generate_random_block(&genesis_hash);
-        block.set_height(blockchain.get_block(&block.get_parent()).get_height() + 1);
-
+        let block = generate_random_block(&genesis_hash);
         blockchain.insert(&block);
+
         // fork by creating another block with the genesis hash as a parent
-        let mut block_fork = generate_random_block(&genesis_hash);
-        block_fork.set_height(blockchain.get_block(&block.get_parent()).get_height() + 1);
+        let block_fork = generate_random_block(&genesis_hash);
 
         blockchain.insert(&block_fork);
-        assert_eq!(blockchain.chain.len(), 2);
+        assert_eq!(blockchain.chain.get(&blockchain.tip()).unwrap().1, 1);
     }
     #[test]
     fn insert_long_fork() {
         let mut blockchain = Blockchain::new();
         let genesis_hash = blockchain.tip();
-        let mut block = generate_random_block(&genesis_hash);
-        block.set_height(blockchain.get_block(&block.get_parent()).get_height() + 1);
+        let block = generate_random_block(&genesis_hash);
         blockchain.insert(&block);
         // fork by creating another block with the genesis hash as a parent
-        let mut block_fork = generate_random_block(&genesis_hash);
-        block_fork.set_height(blockchain.get_block(&block_fork.get_parent()).get_height() + 1);
-        let mut second_block_fork: Block = generate_random_block(&block_fork.hash());
-        second_block_fork.set_height(second_block_fork.get_height() + 1);
+        let block_fork = generate_random_block(&genesis_hash);
+        let second_block_fork: Block = generate_random_block(&block_fork.hash());
         blockchain.insert(&block_fork);
         assert_eq!(blockchain.tip(), block.hash());
         blockchain.insert(&second_block_fork);

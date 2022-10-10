@@ -169,15 +169,8 @@ impl Context {
 
             let nonce: u32 = rng.gen();
             let content: Vec<SignedTransaction> = vec![];
-            let block: Block = Block::new(
-                parent,
-                nonce,
-                timestamp,
-                difficulty,
-                merkle_root,
-                content,
-                height + 1,
-            );
+            let block: Block =
+                Block::new(parent, nonce, timestamp, difficulty, merkle_root, content);
             // TODO for student: if block mining finished, you can have something like: self.finished_block_chan.send(block.clone()).expect("Send finished block error");
             if block.hash() <= difficulty {
                 self.finished_block_chan.send(block.clone()).unwrap(); // this will handle placing it into the blockchain
