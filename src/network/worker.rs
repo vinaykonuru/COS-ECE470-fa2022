@@ -1,8 +1,10 @@
 use super::message::Message;
 use super::peer;
 use super::server::Handle as ServerHandle;
-use crate::types::hash::H256;
-
+use crate::types::block::{Block, Content, Header};
+use crate::types::hash::{Hashable, H256};
+use crate::blockchain::Blockchain;
+use std::sync::{Arc, Mutex};
 use log::{debug, warn, error};
 
 use std::thread;
@@ -13,6 +15,7 @@ use super::peer::TestReceiver as PeerTestReceiver;
 use super::server::TestReceiver as ServerTestReceiver;
 #[derive(Clone)]
 pub struct Worker {
+    blockchain: Arc<Mutex<Blockchain>>,
     msg_chan: smol::channel::Receiver<(Vec<u8>, peer::Handle)>,
     num_worker: usize,
     server: ServerHandle,
@@ -21,11 +24,13 @@ pub struct Worker {
 
 impl Worker {
     pub fn new(
+        blockchain: &Arc<Mutex<Blockchain>>,
         num_worker: usize,
         msg_src: smol::channel::Receiver<(Vec<u8>, peer::Handle)>,
         server: &ServerHandle,
     ) -> Self {
         Self {
+            blockchain: Arc::clone(blockchain),
             msg_chan: msg_src,
             num_worker,
             server: server.clone(),
@@ -53,6 +58,7 @@ impl Worker {
             let msg = result.unwrap();
             let (msg, mut peer) = msg;
             let msg: Message = bincode::deserialize(&msg).unwrap();
+            let mut blockchain = self.blockchain.lock().unwrap();
             match msg {
                 Message::Ping(nonce) => {
                     debug!("Ping: {}", nonce);
@@ -61,8 +67,64 @@ impl Worker {
                 Message::Pong(nonce) => {
                     debug!("Pong: {}", nonce);
                 }
-                _ => unimplemented!(),
+                Message::NewBlockHashes(hashes) => {
+                    // if hashes are not in blockchain, send the following:
+                    let mut new_hashes : Vec<H256> = Vec::new();
+                    for hash in hashes{
+                        // if blockchain doesn't contain a hash, add it to new hashes
+                        if !blockchain.contains(&hash){
+                            new_hashes.push(hash);
+                        }
+                    }
+                    // ask for hashes the local miner doesn't have
+                    if new_hashes.len() != 0 {
+                        peer.write(Message::GetBlocks(new_hashes.clone()));
+                        self.server.broadcast(Message::GetBlocks(new_hashes));
+                    }
+                }
+                Message::GetBlocks(hashes) => {
+                    // if hashes are in blockchain, get blocks and send out a message with them
+                    let mut blocks: Vec<Block> = Vec::new();
+                    for hash in hashes{
+                        match blockchain.get_block(&hash) {
+                            Some(block) => blocks.push(block),
+                            _ => {}
+                        }
+                    }
+                    // push the blocks it does have
+                    peer.write(Message::Blocks(blocks.clone()));
+                    self.server.broadcast(Message::Blocks(blocks));
+                }
+                Message::Blocks(blocks) => {
+                    println!("test 4");
+                    // add these blocks to blockchain if they're not already in it, noting the ones that are new
+                    let mut new_blocks : Vec<Block> = Vec::new();
+                    for block in blocks{
+                        
+                        let hash : H256 = block.hash();
+                        if !blockchain.contains(&hash){
+                            println!("test 4.24");
+                            blockchain.insert(&block);
+                            println!("test 4.5");
+                            new_blocks.push(block);
+                        }
+                        
+                    }
+                    
+                    // then get the hashes of the blocks that are new
+                    let mut new_hashes : Vec<H256> = Vec::new();
+                    for block in new_blocks {
+                        new_hashes.push(block.hash());
+                    }
+                    // and broadcast these new hash blocks
+                    peer.write(Message::NewBlockHashes(new_hashes.clone()));
+                    println!("test 5");
+                    self.server.broadcast(Message::NewBlockHashes(new_hashes));
+                        
+                }
+                _ =>{}
             }
+
         }
     }
 }
@@ -90,9 +152,17 @@ impl TestMsgSender {
 fn generate_test_worker_and_start() -> (TestMsgSender, ServerTestReceiver, Vec<H256>) {
     let (server, server_receiver) = ServerHandle::new_for_test();
     let (test_msg_sender, msg_chan) = TestMsgSender::new();
-    let worker = Worker::new(1, msg_chan, &server);
-    worker.start(); 
-    (test_msg_sender, server_receiver, vec![])
+    let blockchain = Arc::new(Mutex::new(Blockchain::new()));
+    let worker = Worker::new(&blockchain, 1, msg_chan, &server);
+    worker.start();
+    let mut hashes : Vec<H256> = vec![];
+    let mut curr = Some(blockchain.lock().unwrap().head());
+
+    while let Some(x) = curr {
+        hashes.push(x.clone().hash());
+        curr = blockchain.lock().unwrap().get_block(&x.get_parent());
+    }
+    (test_msg_sender, server_receiver, hashes)
 }
 
 // DO NOT CHANGE THIS COMMENT, IT IS FOR AUTOGRADER. BEFORE TEST
@@ -134,12 +204,15 @@ mod test {
         }
     }
     #[test]
-    #[timeout(60000)]
+    #[timeout(1000)]
     fn reply_blocks() {
         let (test_msg_sender, server_receiver, v) = generate_test_worker_and_start();
         let random_block = generate_random_block(v.last().unwrap());
+        println!("test 1");
         let mut _peer_receiver = test_msg_sender.send(Message::Blocks(vec![random_block.clone()]));
+        println!("test 2");
         let reply = server_receiver.recv().unwrap();
+        println!("test 3");
         if let Message::NewBlockHashes(v) = reply {
             assert_eq!(v, vec![random_block.hash()]);
         } else {
@@ -147,5 +220,4 @@ mod test {
         }
     }
 }
-
 // DO NOT CHANGE THIS COMMENT, IT IS FOR AUTOGRADER. AFTER TEST

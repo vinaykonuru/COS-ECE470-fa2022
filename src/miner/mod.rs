@@ -106,6 +106,7 @@ impl Context {
             .lock()
             .unwrap()
             .get_block(&parent)
+            .unwrap()
             .get_difficulty();
         loop {
             // check and react to control signals

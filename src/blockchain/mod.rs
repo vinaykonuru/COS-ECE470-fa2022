@@ -46,8 +46,15 @@ impl Blockchain {
             head: genesis.clone(),
         }
     }
-    pub fn get_block(&self, block_hash: &H256) -> Block {
-        let block: Block = self.chain.get(block_hash).unwrap().0.clone();
+    pub fn contains(&self, key: &H256) -> bool{
+        self.chain.contains_key(key)
+    }
+    pub fn get_block(&self, block_hash: &H256) -> Option<Block> {
+        let block: Option<Block>;
+        match self.chain.get(block_hash) {
+            Some(res) => block = Some(res.0.clone()),
+            None => block = None,
+        }
         block
     }
     fn get_height(&self, block: &Block) -> usize {
@@ -68,6 +75,7 @@ impl Blockchain {
         let tip_height: usize = self.get_tip_height();
         let parent_height: usize = self.chain.get(&block.get_parent()).unwrap().1;
         let block_height: usize = parent_height + 1;
+        
         self.chain
             .insert(block.hash(), (block.clone(), block_height));
         // rule = only make the fork the new longest chain if the fork tip is strictly longer than the current tip
@@ -75,7 +83,9 @@ impl Blockchain {
             self.head = block.clone();
         }
     }
-
+    pub fn head(&self) -> Block{
+        self.head.clone()
+    }
     /// Get the last block's hash of the longest chain
     pub fn tip(&self) -> H256 {
         self.head.hash()

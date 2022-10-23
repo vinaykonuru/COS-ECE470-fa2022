@@ -75,7 +75,7 @@ fn main() {
         });
     let blockchain = Arc::new(Mutex::new(Blockchain::new()));
 
-    let worker_ctx = network::worker::Worker::new(p2p_workers, msg_rx, &server);
+    let worker_ctx = network::worker::Worker::new(&blockchain, p2p_workers, msg_rx, &server);
     worker_ctx.start();
 
     // start the miner

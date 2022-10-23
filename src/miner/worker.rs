@@ -1,6 +1,8 @@
 use crate::blockchain::Blockchain;
 use crate::network::server::Handle as ServerHandle;
-use crate::types::block::Block;
+use crate::types::block::{Block, Content, Header};
+use crate::types::hash::{Hashable, H256};
+use super::super::network::message::Message;
 use crossbeam::channel::{unbounded, Receiver, Sender, TryRecvError};
 use log::{debug, info};
 use std::sync::{Arc, Mutex};
@@ -46,6 +48,7 @@ impl Worker {
             // TODO for student: insert this finished block to blockchain, and broadcast this block hash
             self.blockchain.lock().unwrap().insert(&_block);
             // broadcasting in another assignment
+            self.server.broadcast(Message::NewBlockHashes(vec![_block.hash()]))
         }
     }
 }
