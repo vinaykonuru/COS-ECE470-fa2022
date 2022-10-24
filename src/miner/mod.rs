@@ -100,7 +100,6 @@ impl Context {
         let mut parent: H256 = self.blockchain.lock().unwrap().tip();
         let mut height: usize = self.blockchain.lock().unwrap().get_tip_height();
         let mut merkle_root: H256;
-        // OFFICE HOURS: Can I calculate difficulty up here since it won't change?
         let mut difficulty: H256 = self
             .blockchain
             .lock()
@@ -157,16 +156,13 @@ impl Context {
 
             // TODO for student: actual mining, create a block
             // build a block
-            println!("test 1");
             timestamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_millis();
             data = vec![];
-            println!("test 2");
 
             merkle_root = MerkleTree::new(&data).root();
-            println!("test 3");
 
             let nonce: u32 = rng.gen();
             let content: Vec<SignedTransaction> = vec![];
@@ -175,9 +171,7 @@ impl Context {
             // TODO for student: if block mining finished, you can have something like: self.finished_block_chan.send(block.clone()).expect("Send finished block error");
             if block.hash() <= difficulty {
                 self.finished_block_chan.send(block.clone()).unwrap(); // this will handle placing it into the blockchain
-                println!("PARENT: {}", parent);
                 parent = block.hash();
-                println!("CHILD: {}", parent);
             }
             if let OperatingState::Run(i) = self.operating_state {
                 if i != 0 {

@@ -14,9 +14,8 @@ pub struct Blockchain {
 impl Blockchain {
     /// Create a new blockchain, only containing the genesis block
     pub fn new() -> Self {
-        let mut rng = thread_rng();
         // random nonce(doesn't have to solve the puzzle for the genesis according to Office Hours)
-        let nonce: u32 = rng.gen();
+        let nonce: u32 = 00000000000000000000000000000000;
 
         // random parent(okay according to Office Hours)
         let mut parent: H256 = [0; 32].into();
@@ -24,23 +23,21 @@ impl Blockchain {
         let mut merkle_root: H256 = [0; 32].into();
         merkle_root = merkle_root.hash();
         // arbitrary difficulty
-        let difficulty: H256 = [1; 32].into();
+        let difficulty: H256 = [10; 32].into();
         // current timestamp
-        let timestamp = SystemTime::now();
+        let timestamp : u128 = 0;
         let height = 0;
         let mut chain: HashMap<H256, (Block, usize)> = HashMap::new();
         let genesis = Block::new(
             parent,
             nonce,
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_millis(),
+            timestamp,
             difficulty,
             merkle_root,
             vec![],
         );
         chain.insert(genesis.hash(), (genesis.clone(), height));
+        println!("{:?}", genesis.hash());
         Self {
             chain: chain,
             head: genesis.clone(),
@@ -58,21 +55,12 @@ impl Blockchain {
         block
     }
     fn get_height(&self, block: &Block) -> usize {
-        // let genesis_hash: H256 = [0; 32].into();
-        // let mut curr_block = block.clone();
-        // let mut height = 0;
-        // loop {
-        //     if curr_block.get_parent() == genesis_hash {
-        //         break;
-        //     }
-        //     height += 1;
-        //     curr_block = self.get_block(&curr_block.get_parent());
-        // }
         self.chain.get(&block.hash()).unwrap().1
     }
     /// Insert a block into blockchain
     pub fn insert(&mut self, block: &Block) {
         let tip_height: usize = self.get_tip_height();
+        println!("{:?}", block.hash());
         let parent_height: usize = self.chain.get(&block.get_parent()).unwrap().1;
         let block_height: usize = parent_height + 1;
         
@@ -129,7 +117,6 @@ mod tests {
         let genesis_hash = blockchain.tip();
         let block = generate_random_block(&genesis_hash);
         blockchain.insert(&block);
-        println!("Height: {}", blockchain.chain.get(&block.hash()).unwrap().1);
         assert_eq!(blockchain.tip(), block.hash());
     }
     #[test]

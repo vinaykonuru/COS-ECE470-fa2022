@@ -59,6 +59,7 @@ impl Worker {
             let (msg, mut peer) = msg;
             let msg: Message = bincode::deserialize(&msg).unwrap();
             let mut blockchain = self.blockchain.lock().unwrap();
+            println!("{:?}", blockchain.get_tip_height());
             match msg {
                 Message::Ping(nonce) => {
                     debug!("Ping: {}", nonce);
@@ -68,6 +69,7 @@ impl Worker {
                     debug!("Pong: {}", nonce);
                 }
                 Message::NewBlockHashes(hashes) => {
+                    println!("in new block hash");
                     // if hashes are not in blockchain, send the following:
                     let mut new_hashes : Vec<H256> = Vec::new();
                     for hash in hashes{
@@ -83,6 +85,7 @@ impl Worker {
                     }
                 }
                 Message::GetBlocks(hashes) => {
+                    println!("in get blocks");
                     // if hashes are in blockchain, get blocks and send out a message with them
                     let mut blocks: Vec<Block> = Vec::new();
                     for hash in hashes{
@@ -96,16 +99,15 @@ impl Worker {
                     self.server.broadcast(Message::Blocks(blocks));
                 }
                 Message::Blocks(blocks) => {
-                    println!("test 4");
+                    println!("blocks");
                     // add these blocks to blockchain if they're not already in it, noting the ones that are new
                     let mut new_blocks : Vec<Block> = Vec::new();
                     for block in blocks{
-                        
+                       
                         let hash : H256 = block.hash();
+
                         if !blockchain.contains(&hash){
-                            println!("test 4.24");
                             blockchain.insert(&block);
-                            println!("test 4.5");
                             new_blocks.push(block);
                         }
                         
@@ -118,7 +120,6 @@ impl Worker {
                     }
                     // and broadcast these new hash blocks
                     peer.write(Message::NewBlockHashes(new_hashes.clone()));
-                    println!("test 5");
                     self.server.broadcast(Message::NewBlockHashes(new_hashes));
                         
                 }
@@ -208,11 +209,8 @@ mod test {
     fn reply_blocks() {
         let (test_msg_sender, server_receiver, v) = generate_test_worker_and_start();
         let random_block = generate_random_block(v.last().unwrap());
-        println!("test 1");
         let mut _peer_receiver = test_msg_sender.send(Message::Blocks(vec![random_block.clone()]));
-        println!("test 2");
         let reply = server_receiver.recv().unwrap();
-        println!("test 3");
         if let Message::NewBlockHashes(v) = reply {
             assert_eq!(v, vec![random_block.hash()]);
         } else {
