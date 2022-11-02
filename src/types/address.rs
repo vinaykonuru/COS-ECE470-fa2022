@@ -54,13 +54,10 @@ impl std::fmt::Debug for Address {
 
 impl Address {
     pub fn from_public_key_bytes(bytes: &[u8]) -> Address {
-        println!("bytes: {:?}", bytes);
         let hash = digest::digest(&digest::SHA256, bytes);
         let hash_as_ref = &hash.as_ref();
-        println!("hash as ref: {:?}", hash_as_ref);
         let index = hash_as_ref.len() - (20);
         let short_hash: &[u8] = &hash_as_ref[index..];
-        println!("{:?}", short_hash);
         let mut array: [u8; 20] = [0; 20];
         let mut count = 0;
         loop {

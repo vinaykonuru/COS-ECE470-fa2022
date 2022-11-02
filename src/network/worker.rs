@@ -4,6 +4,8 @@ use super::server::Handle as ServerHandle;
 use crate::types::block::{Block, Content, Header};
 use crate::types::hash::{Hashable, H256};
 use crate::blockchain::Blockchain;
+use std::collections::VecDeque;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use log::{debug, warn, error};
 
@@ -21,7 +23,37 @@ pub struct Worker {
     server: ServerHandle,
 }
 
+pub struct OrphanBuffer {
+    // key is parent hash value is block
+    buffer : HashMap<H256, Vec<Block>>
+}
 
+impl OrphanBuffer {
+    pub fn new() -> Self {        
+        let mut buffer: HashMap<H256, Vec<Block>> = HashMap::new();
+        Self{buffer}
+    }
+    pub fn add(&mut self, block : Block, parent_hash: H256) {
+        if self.contains(parent_hash){
+            let mut arr : Vec<Block> = self.buffer.get(&parent_hash).unwrap().clone();
+            arr.push(block);
+            self.buffer.insert(parent_hash, arr.clone());
+        }
+        else{
+            self.buffer.insert(parent_hash, vec![block]);
+        }
+    }
+    pub fn contains(&self, parent_hash:H256) -> bool {
+        self.buffer.contains_key(&parent_hash)
+    }
+    pub fn get(&mut self, parent_hash:H256) -> Vec<Block> {
+        let mut temp_vec = vec![];
+        if self.contains(parent_hash){
+            temp_vec = self.buffer.remove(&parent_hash).unwrap().clone()
+        }
+        temp_vec
+    }
+}
 impl Worker {
     pub fn new(
         blockchain: &Arc<Mutex<Blockchain>>,
@@ -60,6 +92,7 @@ impl Worker {
             let msg: Message = bincode::deserialize(&msg).unwrap();
             let mut blockchain = self.blockchain.lock().unwrap();
             println!("{:?}", blockchain.get_tip_height());
+            let mut buffer = OrphanBuffer::new();
             match msg {
                 Message::Ping(nonce) => {
                     debug!("Ping: {}", nonce);
@@ -69,7 +102,6 @@ impl Worker {
                     debug!("Pong: {}", nonce);
                 }
                 Message::NewBlockHashes(hashes) => {
-                    println!("in new block hash");
                     // if hashes are not in blockchain, send the following:
                     let mut new_hashes : Vec<H256> = Vec::new();
                     for hash in hashes{
@@ -85,7 +117,6 @@ impl Worker {
                     }
                 }
                 Message::GetBlocks(hashes) => {
-                    println!("in get blocks");
                     // if hashes are in blockchain, get blocks and send out a message with them
                     let mut blocks: Vec<Block> = Vec::new();
                     for hash in hashes{
@@ -99,18 +130,54 @@ impl Worker {
                     self.server.broadcast(Message::Blocks(blocks));
                 }
                 Message::Blocks(blocks) => {
-                    println!("blocks");
                     // add these blocks to blockchain if they're not already in it, noting the ones that are new
                     let mut new_blocks : Vec<Block> = Vec::new();
                     for block in blocks{
-                       
                         let hash : H256 = block.hash();
-
-                        if !blockchain.contains(&hash){
-                            blockchain.insert(&block);
-                            new_blocks.push(block);
+                        // PoW Validity Check:
+                        if !blockchain.contains(&block.get_parent()){
+                            // add block to buffer
+                            buffer.add(block.clone(), block.get_parent());
+                            // broadcast that we're missing a block's parent
+                            peer.write(Message::GetBlocks(vec![hash]));
+                            self.server.broadcast(Message::GetBlocks(vec![hash]));
                         }
-                        
+                        else{
+                            let parent : Block = blockchain.get_block(&block.get_parent()).unwrap();
+                            if block.hash() <= block.get_difficulty() && block.get_difficulty() == parent.get_difficulty(){
+                                if !blockchain.contains(&parent.hash()){
+
+                                }
+                                else{
+                                    // add block to chain
+                                    if !blockchain.contains(&hash){
+                                        blockchain.insert(&block);
+                                        new_blocks.push(block.clone());
+                                    }
+                                }
+                                // do this iteratively
+                                // check if the block is a parent in the buffer, iteratively add all blocks
+                                if buffer.contains(hash){
+                                    let mut orphans = VecDeque::new();
+                                    let mut temp_orphans = buffer.get(hash);
+                                    for block in temp_orphans{
+                                        orphans.push_back(block);
+                                    }
+                                    while !orphans.is_empty(){
+                                        let temp_block = orphans.pop_front().unwrap();
+                                        blockchain.insert(&temp_block);
+                                        new_blocks.push(temp_block.clone());
+                                        if buffer.contains(temp_block.hash()){
+                                            temp_orphans = buffer.get(block.hash());
+                                            for block in temp_orphans{
+                                                orphans.push_back(block.clone());
+                                            }
+                                        }
+                                    
+                                    }
+                                }
+                            }
+                        }
                     }
                     
                     // then get the hashes of the blocks that are new

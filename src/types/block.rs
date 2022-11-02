@@ -60,7 +60,6 @@ impl Block {
         Self { header, content }
     }
     pub fn get_parent(&self) -> H256 {
-        println!("test 4.75");
         self.header.parent
     }
 

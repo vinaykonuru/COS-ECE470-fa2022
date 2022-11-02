@@ -2,8 +2,12 @@
   "ExpandedNodes": [
     "",
     "\\src",
-    "\\src\\miner"
+    "\\src\\api",
+    "\\src\\blockchain",
+    "\\src\\miner",
+    "\\src\\network",
+    "\\src\\types"
   ],
-  "SelectedNode": "\\src\\blockchain",
+  "SelectedNode": "\\src\\types\\block.rs",
   "PreviewInSolutionExplorer": false
 }

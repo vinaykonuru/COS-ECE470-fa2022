@@ -23,7 +23,8 @@ impl Blockchain {
         let mut merkle_root: H256 = [0; 32].into();
         merkle_root = merkle_root.hash();
         // arbitrary difficulty
-        let difficulty: H256 = [10; 32].into();
+        let difficulty: H256 = [0xff; 32].into();
+        println!("difficulty: {:?}", difficulty);
         // current timestamp
         let timestamp : u128 = 0;
         let height = 0;
@@ -37,7 +38,6 @@ impl Blockchain {
             vec![],
         );
         chain.insert(genesis.hash(), (genesis.clone(), height));
-        println!("{:?}", genesis.hash());
         Self {
             chain: chain,
             head: genesis.clone(),
@@ -60,7 +60,6 @@ impl Blockchain {
     /// Insert a block into blockchain
     pub fn insert(&mut self, block: &Block) {
         let tip_height: usize = self.get_tip_height();
-        println!("{:?}", block.hash());
         let parent_height: usize = self.chain.get(&block.get_parent()).unwrap().1;
         let block_height: usize = parent_height + 1;
         
@@ -85,8 +84,8 @@ impl Blockchain {
     pub fn all_blocks_in_longest_chain(&self) -> Vec<H256> {
         let mut curr_block: Block = self.head.clone();
         let mut parent_hash: H256;
-        let mut count = 1;
-        let longest_chain_len: usize = self.get_height(&self.head) + 1;
+        let mut count = 0;
+        let longest_chain_len: usize = self.get_tip_height() + 1;
         let mut list: Vec<H256> = vec![curr_block.hash(); longest_chain_len];
         list[longest_chain_len - 1] = curr_block.hash();
         loop {
@@ -133,7 +132,6 @@ mod tests {
             blockchain.insert(&block);
             count += 1;
         }
-        println!("Chain: {:?}", blockchain.all_blocks_in_longest_chain());
         assert_eq!(blockchain.chain.len(), 51)
     }
     #[test]
@@ -164,15 +162,12 @@ mod tests {
         let vec = blockchain.all_blocks_in_longest_chain();
         // print entire hash
         let mut index = 0;
-        println!("Longest Chain (ordered genesis to head):");
         loop {
             if (index == vec.len()) {
                 break;
             }
-            println!("{}", vec[index]);
             index += 1;
         }
-        println!("Chain: {:?}", blockchain.all_blocks_in_longest_chain());
         assert_eq!(blockchain.tip(), second_block_fork.hash());
     }
 }
