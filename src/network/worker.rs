@@ -3,6 +3,7 @@ use super::peer;
 use super::server::Handle as ServerHandle;
 use crate::types::block::{Block, Content, Header};
 use crate::types::hash::{Hashable, H256};
+use crate::types::transaction::SignedTransaction;
 use crate::blockchain::Blockchain;
 use std::collections::VecDeque;
 use std::collections::HashMap;
@@ -18,6 +19,7 @@ use super::server::TestReceiver as ServerTestReceiver;
 #[derive(Clone)]
 pub struct Worker {
     blockchain: Arc<Mutex<Blockchain>>,
+    mempool: Arc<Mutex<HashMap<H256, SignedTransaction>>>,
     msg_chan: smol::channel::Receiver<(Vec<u8>, peer::Handle)>,
     num_worker: usize,
     server: ServerHandle,
@@ -57,12 +59,14 @@ impl OrphanBuffer {
 impl Worker {
     pub fn new(
         blockchain: &Arc<Mutex<Blockchain>>,
+        mempool: &Arc<Mutex<HashMap<H256, SignedTransaction>>>,
         num_worker: usize,
         msg_src: smol::channel::Receiver<(Vec<u8>, peer::Handle)>,
         server: &ServerHandle,
     ) -> Self {
         Self {
             blockchain: Arc::clone(blockchain),
+            mempool: Arc::clone(mempool),
             msg_chan: msg_src,
             num_worker,
             server: server.clone(),
@@ -91,7 +95,7 @@ impl Worker {
             let (msg, mut peer) = msg;
             let msg: Message = bincode::deserialize(&msg).unwrap();
             let mut blockchain = self.blockchain.lock().unwrap();
-            println!("{:?}", blockchain.get_tip_height());
+            // println!("{:?}", blockchain.get_tip_height());
             let mut buffer = OrphanBuffer::new();
             match msg {
                 Message::Ping(nonce) => {
@@ -139,8 +143,8 @@ impl Worker {
                             // add block to buffer
                             buffer.add(block.clone(), block.get_parent());
                             // broadcast that we're missing a block's parent
-                            peer.write(Message::GetBlocks(vec![hash]));
-                            self.server.broadcast(Message::GetBlocks(vec![hash]));
+                            peer.write(Message::GetBlocks(vec![block.get_parent()]));
+                            self.server.broadcast(Message::GetBlocks(vec![block.get_parent()]));
                         }
                         else{
                             let parent : Block = blockchain.get_block(&block.get_parent()).unwrap();
@@ -152,6 +156,9 @@ impl Worker {
                                     // add block to chain
                                     if !blockchain.contains(&hash){
                                         blockchain.insert(&block);
+                                        for transaction in block.get_content(){
+                                            self.mempool.lock().unwrap().remove(&transaction.hash());
+                                        }
                                         new_blocks.push(block.clone());
                                     }
                                 }
@@ -166,6 +173,9 @@ impl Worker {
                                     while !orphans.is_empty(){
                                         let temp_block = orphans.pop_front().unwrap();
                                         blockchain.insert(&temp_block);
+                                        for transaction in block.get_content(){
+                                            self.mempool.lock().unwrap().remove(&transaction.hash());
+                                        }
                                         new_blocks.push(temp_block.clone());
                                         if buffer.contains(temp_block.hash()){
                                             temp_orphans = buffer.get(block.hash());
@@ -189,6 +199,58 @@ impl Worker {
                     peer.write(Message::NewBlockHashes(new_hashes.clone()));
                     self.server.broadcast(Message::NewBlockHashes(new_hashes));
                         
+                }
+                Message::NewTransactionHashes(hashes) => {
+                    let mut new_hashes : Vec<H256> = Vec::new();
+                    for hash in hashes{
+                        // if blockchain doesn't contain a hash, add it to new hashes
+                        {let m = self.mempool.lock().unwrap();
+                            if !m.contains_key(&hash){
+                                new_hashes.push(hash);
+                            }
+                        };
+                    }
+                    // ask for hashes the local miner doesn't have
+                    if new_hashes.len() != 0 {
+                        peer.write(Message::GetTransactions(new_hashes.clone()));
+                        self.server.broadcast(Message::GetTransactions(new_hashes));
+                    }
+                }
+                Message::GetTransactions(hashes) => {
+                    // if hashes are in blockchain, get blocks and send out a message with them
+                    let mut transactions: Vec<SignedTransaction> = Vec::new();
+                    for hash in hashes{
+                        {let m = self.mempool.lock().unwrap();
+                            match m.get(&hash) {
+                                Some(transaction) => transactions.push(transaction.clone()),
+                                _ => {}
+                            }
+                        };
+                    }
+                    // push the blocks it does have
+                    peer.write(Message::Transactions(transactions.clone()));
+                    self.server.broadcast(Message::Transactions(transactions));
+                }
+                Message::Transactions(transactions) => {
+                    // add these blocks to blockchain if they're not already in it, noting the ones that are new
+                    let mut new_transactions : Vec<SignedTransaction> = Vec::new();
+                    for transaction in transactions{
+                        let hash : H256 = transaction.hash();
+                        if transaction.verify(){
+                            {let mut m = self.mempool.lock().unwrap();
+                                m.insert(transaction.hash(), transaction.clone());
+                            };
+                            new_transactions.push(transaction.clone());
+                        }
+                    }
+                    // then get the hashes of the blocks that are new
+                    let mut new_hashes : Vec<H256> = Vec::new();
+                    for transaction in new_transactions {
+                        new_hashes.push(transaction.hash());
+                    }
+                    // and broadcast these new hash blocks
+                    peer.write(Message::NewBlockHashes(new_hashes.clone()));
+                    self.server.broadcast(Message::NewBlockHashes(new_hashes));
                 }
                 _ =>{}
             }

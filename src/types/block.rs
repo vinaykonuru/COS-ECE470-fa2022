@@ -66,6 +66,14 @@ impl Block {
     pub fn get_difficulty(&self) -> H256 {
         self.header.difficulty
     }
+    pub fn get_content(&self) -> Vec<SignedTransaction>{
+        let content = &self.content.content;
+        let mut transactions : Vec<SignedTransaction> = vec![];
+        for transaction in content{
+            transactions.push(transaction.clone());
+        }
+        transactions
+    }
 }
 
 #[cfg(any(test, test_utilities))]

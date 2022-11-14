@@ -7,7 +7,10 @@ pub mod blockchain;
 pub mod miner;
 pub mod network;
 pub mod types;
-
+pub mod transaction_generator;
+use std::collections::HashMap;
+use types::transaction::{SignedTransaction, Transaction};
+use types::hash::{Hashable, H256};
 use api::Server as ApiServer;
 use blockchain::Blockchain;
 use clap::clap_app;
@@ -35,8 +38,9 @@ fn main() {
     // init logger
     let verbosity = matches.occurrences_of("verbose") as usize;
     stderrlog::new().verbosity(verbosity).init().unwrap();
-    let blockchain = Blockchain::new();
-    let blockchain = Arc::new(Mutex::new(blockchain));
+    let blockchain = Arc::new(Mutex::new(Blockchain::new()));
+    let transactions: HashMap<H256,SignedTransaction> = HashMap::new();
+    let mempool = Arc::new(Mutex::new(transactions));
     // parse p2p server address
     let p2p_addr = matches
         .value_of("peer_addr")
@@ -73,17 +77,18 @@ fn main() {
             error!("Error parsing P2P workers: {}", e);
             process::exit(1);
         });
-    let blockchain = Arc::new(Mutex::new(Blockchain::new()));
-
-    let worker_ctx = network::worker::Worker::new(&blockchain, p2p_workers, msg_rx, &server);
+    
+    let worker_ctx = network::worker::Worker::new(&blockchain, &mempool, p2p_workers, msg_rx, &server);
     worker_ctx.start();
 
     // start the miner
-    let (miner_ctx, miner, finished_block_chan) = miner::new(&blockchain);
-    let miner_worker_ctx = miner::worker::Worker::new(&blockchain, &server, finished_block_chan);
+    let (miner_ctx, miner, finished_block_chan) = miner::new(&blockchain, &mempool);
+    let miner_worker_ctx = miner::worker::Worker::new(&blockchain,&mempool, &server, finished_block_chan);
+    let (tx_generator_ctx, tx_generator) = transaction_generator::new(&blockchain, &mempool, &server);
+ 
     miner_ctx.start();
     miner_worker_ctx.start();
-
+    tx_generator_ctx.start();
     // connect to known peers
     if let Some(known_peers) = matches.values_of("known_peer") {
         let known_peers: Vec<String> = known_peers.map(|x| x.to_owned()).collect();
@@ -118,7 +123,7 @@ fn main() {
     }
 
     // start the API server
-    ApiServer::start(api_addr, &miner, &server, &blockchain);
+    ApiServer::start(api_addr, &miner, &tx_generator, &server, &blockchain);
 
     loop {
         std::thread::park();

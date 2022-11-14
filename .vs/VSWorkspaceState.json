@@ -1,13 +1,14 @@
 {
   "ExpandedNodes": [
     "",
+    "\\Project7",
     "\\src",
-    "\\src\\api",
     "\\src\\blockchain",
     "\\src\\miner",
     "\\src\\network",
+    "\\src\\transaction_generator",
     "\\src\\types"
   ],
-  "SelectedNode": "\\src\\types\\block.rs",
+  "SelectedNode": "\\src\\types\\mod.rs",
   "PreviewInSolutionExplorer": false
 }

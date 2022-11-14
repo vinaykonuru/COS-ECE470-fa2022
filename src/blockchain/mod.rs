@@ -1,5 +1,6 @@
 use crate::types::block::{Block, Content, Header};
 use crate::types::hash::{Hashable, H256};
+use crate::types::transaction::SignedTransaction;
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -23,7 +24,7 @@ impl Blockchain {
         let mut merkle_root: H256 = [0; 32].into();
         merkle_root = merkle_root.hash();
         // arbitrary difficulty
-        let difficulty: H256 = [0xff; 32].into();
+        let difficulty: H256 = [1; 32].into();
         println!("difficulty: {:?}", difficulty);
         // current timestamp
         let timestamp : u128 = 0;
@@ -98,6 +99,26 @@ impl Blockchain {
             curr_block = self.chain.get(&parent_hash).unwrap().0.clone();
             count += 1;
         }
+        list
+    }
+    pub fn all_transactions_in_longest_chain(&self) -> Vec<Vec<SignedTransaction>> {
+        let mut curr_block: Block = self.head.clone();
+        let mut parent_hash: H256;
+        let mut count = 0;
+        let longest_chain_len: usize = self.get_tip_height() + 1;
+        let empty_vec : Vec<SignedTransaction> = vec![];
+        let mut list: Vec<Vec<SignedTransaction>> = vec![empty_vec.clone(); 0];
+        // list[longest_chain_len - 1] = curr_block.get_content();
+        
+        { loop {
+            if count == longest_chain_len - 1 {
+                break;
+            }
+            parent_hash = curr_block.get_parent();
+            list[longest_chain_len - 1 - count] = curr_block.get_content();
+            curr_block = self.chain.get(&parent_hash).unwrap().0.clone();
+            count += 1;
+        } }
         list
     }
 }

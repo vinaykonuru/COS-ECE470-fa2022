@@ -1,12 +1,12 @@
-pub mod worker;
-
 use log::info;
-
 use crate::blockchain::Blockchain;
 use crate::types::block::Block;
 use crate::types::hash::{Hashable, H256};
 use crate::types::merkle::MerkleTree;
+use crate::types::transaction;
 use crate::types::transaction::SignedTransaction;
+use crate::network::server::Handle as ServerHandle;
+use crate::network::message::Message;
 use crossbeam::channel::{unbounded, Receiver, Sender, TryRecvError};
 use rand::{thread_rng, Rng};
 use std::sync::{Arc, Mutex};
@@ -31,9 +31,9 @@ pub struct Context {
     /// Channel for receiving control signal
     blockchain: Arc<Mutex<Blockchain>>,
     mempool: Arc<Mutex<HashMap<H256, SignedTransaction>>>,
+    server: ServerHandle,
     control_chan: Receiver<ControlSignal>,
     operating_state: OperatingState,
-    finished_block_chan: Sender<Block>,
 }
 
 #[derive(Clone)]
@@ -42,24 +42,23 @@ pub struct Handle {
     control_chan: Sender<ControlSignal>,
 }
 
-pub fn new(blockchain: &Arc<Mutex<Blockchain>>, mempool: &Arc<Mutex<HashMap<H256, SignedTransaction>>>) -> (Context, Handle, Receiver<Block>) {
+pub fn new(blockchain: &Arc<Mutex<Blockchain>>, mempool: &Arc<Mutex<HashMap<H256,SignedTransaction>>>, server: &ServerHandle) -> (Context, Handle) {
     let (signal_chan_sender, signal_chan_receiver) = unbounded();
-    let (finished_block_sender, finished_block_receiver) = unbounded();
     let blockchain = Arc::clone(blockchain);
     let mempool = Arc::clone(mempool);
     let ctx = Context {
         blockchain: blockchain,
         mempool: mempool,
+        server: server.clone(),
         control_chan: signal_chan_receiver,
         operating_state: OperatingState::Paused,
-        finished_block_chan: finished_block_sender,
     };
 
     let handle = Handle {
         control_chan: signal_chan_sender,
     };
 
-    (ctx, handle, finished_block_receiver)
+    (ctx, handle)
 }
 
 #[cfg(any(test, test_utilities))]
@@ -73,9 +72,9 @@ impl Handle {
         self.control_chan.send(ControlSignal::Exit).unwrap();
     }
 
-    pub fn start(&self, lambda: u64) {
+    pub fn start(&self, theta: u64) {
         self.control_chan
-            .send(ControlSignal::Start(lambda))
+            .send(ControlSignal::Start(theta))
             .unwrap();
     }
 
@@ -97,25 +96,6 @@ impl Context {
 
     fn miner_loop(&mut self) {
         // main mining loop
-        let mut rng = thread_rng();
-        let mut timestamp: u128;
-        let mut data: Vec<H256>;
-        let mut content: Vec<SignedTransaction>;
-        let mut parent: H256 = self.blockchain.lock().unwrap().tip();
-        let mut height: usize = self.blockchain.lock().unwrap().get_tip_height();
-        let mut merkle_root: H256;
-        let mut difficulty: H256 = self
-            .blockchain
-            .lock()
-            .unwrap()
-            .get_block(&parent)
-            .unwrap()
-            .get_difficulty();
-        let mut content_keys: Vec<H256> = vec![];
-        let mut content: Vec<SignedTransaction> = vec![];
-        data = vec![];
-
-
         loop {
             // check and react to control signals
             match self.operating_state {
@@ -123,11 +103,11 @@ impl Context {
                     let signal = self.control_chan.recv().unwrap();
                     match signal {
                         ControlSignal::Exit => {
-                            info!("Miner shutting down");
+                            info!("Transaction generator shutting down");
                             self.operating_state = OperatingState::ShutDown;
                         }
                         ControlSignal::Start(i) => {
-                            info!("Miner starting in continuous mode with lambda {}", i);
+                            info!("Transaction generator starting in continuous mode with theta {}", i);
                             self.operating_state = OperatingState::Run(i);
                         }
                         ControlSignal::Update => {
@@ -139,6 +119,7 @@ impl Context {
                 OperatingState::ShutDown => {
                     return;
                 }
+                
                 _ => match self.control_chan.try_recv() {
                     Ok(signal) => {
                         match signal {
@@ -162,42 +143,16 @@ impl Context {
             if let OperatingState::ShutDown = self.operating_state {
                 return;
             }
-
-            // TODO for student: actual mining, create a block
-            // build a block
-            timestamp = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_millis();
-            {let m = self.mempool.lock().unwrap();
-            for (key, transaction) in m.iter(){
-                if content.len() == 3{
-                    break;
-                }
-                content_keys.push(key.clone());
-                content.push(transaction.clone());
-                data.push(transaction.hash());
-            }
-            };
-
-            merkle_root = MerkleTree::new(&data).root();
-
-            let nonce: u32 = rng.gen();
-
-            let block: Block =
-                Block::new(parent, nonce, timestamp, difficulty, merkle_root, content.clone());
-            
-            if block.hash() <= difficulty {
-                self.finished_block_chan.send(block.clone()).unwrap(); // this will handle placing it into the blockchain
-                parent = block.hash();
-            }
-            content_keys = vec![];
-            content = vec![];
-            data = vec![];
             if let OperatingState::Run(i) = self.operating_state {
                 if i != 0 {
                     let interval = time::Duration::from_micros(i as u64);
-                    thread::sleep(interval);
+                    thread::sleep(interval * 100);
+                    let random_transaction = transaction::generate_signed_transaction();
+                    // println!("{:?}", random_transaction.hash());
+                    {let mut m = self.mempool.lock().unwrap();
+                        m.insert(random_transaction.hash(),random_transaction.clone());
+                    };
+                    self.server.broadcast(Message::NewTransactionHashes(vec![random_transaction.hash()]))
                 }
             }
         }
@@ -211,19 +166,6 @@ mod test {
     use crate::types::hash::Hashable;
     use ntest::timeout;
 
-    #[test]
-    #[timeout(60000)]
-    fn miner_three_block() {
-        let (miner_ctx, miner_handle, finished_block_chan) = super::test_new();
-        miner_ctx.start();
-        miner_handle.start(0);
-        let mut block_prev = finished_block_chan.recv().unwrap();
-        for _ in 0..2 {
-            let block_next = finished_block_chan.recv().unwrap();
-            assert_eq!(block_prev.hash(), block_next.get_parent());
-            block_prev = block_next;
-        }
-    }
 }
 
 // DO NOT CHANGE THIS COMMENT, IT IS FOR AUTOGRADER. AFTER TEST

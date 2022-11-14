@@ -1,6 +1,7 @@
 use super::address::Address;
 use super::hash::{Hashable, H256};
 use rand::{thread_rng, Rng};
+use super::key_pair;
 use ring::signature::{
     Ed25519KeyPair, EdDSAParameters, KeyPair, Signature, UnparsedPublicKey, VerificationAlgorithm,
     ED25519,
@@ -19,6 +20,12 @@ pub struct SignedTransaction {
     t: Transaction,
     sig: Vec<u8>,
     pub_key: Vec<u8>,
+}
+impl SignedTransaction{
+    pub fn verify(&self) -> bool{
+        let peer_public_key = UnparsedPublicKey::new(&ED25519, self.pub_key.clone());
+        peer_public_key.verify(&[self.t.value], &self.sig).is_ok()
+    }
 }
 impl Hashable for SignedTransaction {
     fn hash(&self) -> H256 {
@@ -65,7 +72,34 @@ pub fn generate_random_transaction() -> Transaction {
         value: val,
     }
 }
+pub fn generate_signed_transaction() -> SignedTransaction{
+    let mut count = 0;
+    let mut addr_arr_sender: [u8; 20] = [0; 20];
+    let mut addr_arr_receiver: [u8; 20] = [0; 20];
+    let mut rng = thread_rng();
 
+    loop {
+        addr_arr_sender[count] = rng.gen();
+        addr_arr_receiver[count] = rng.gen();
+
+        if (count >= 19) {
+            break;
+        }
+        count += 1;
+    }
+    let addr_sender = Address::new(addr_arr_sender);
+    let addr_receiver = Address::new(addr_arr_receiver);
+    let val: u8 = rng.gen();
+    let t = Transaction {
+        sender: addr_sender,
+        receiver: addr_receiver,
+        value: val,
+    };
+    let key = key_pair::random();
+    let sig = sign(&t, &key).as_ref().to_vec();
+    let pub_key : Vec<u8> = key.public_key().as_ref().to_vec();
+    SignedTransaction{t, sig, pub_key}
+}
 // DO NOT CHANGE THIS COMMENT, IT IS FOR AUTOGRADER. BEFORE TEST
 
 #[cfg(test)]
