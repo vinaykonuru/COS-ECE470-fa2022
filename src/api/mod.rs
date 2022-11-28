@@ -83,6 +83,36 @@ impl Server {
                         }
                     };
                     match url.path() {
+                        "/blockchain/state" => {
+                            let params = url.query_pairs();
+                            let params: HashMap<_, _> = params.into_owned().collect();
+                            let block = match params.get("block"){
+                                Some(v) => v,
+                                None => {
+                                    respond_result!(req, false, "missing lambda");
+                                    return;
+                                }
+                            };
+                            let block = match block.parse::<usize>() {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    respond_result!(
+                                        req,
+                                        false,
+                                        format!("error parsing block: {}", e)
+                                    );
+                                    return;
+                                }
+                            };
+                            let blockchain = blockchain.lock().unwrap();
+                            let state = blockchain.state_at_block(block).clone();
+                            let mut v : Vec<String> = vec![];
+                            for tup in state{
+                                let state_string = "(".to_owned() + &tup.0.to_string() + ", " + &tup.1.to_string() + ", " + &tup.2.to_string() + ")";
+                                v.push(state_string);
+                            }
+                            respond_json!(req, v);
+                        }
                         "/miner/start" => {
                             let params = url.query_pairs();
                             let params: HashMap<_, _> = params.into_owned().collect();

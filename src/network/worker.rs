@@ -4,7 +4,7 @@ use super::server::Handle as ServerHandle;
 use crate::types::block::{Block, Content, Header};
 use crate::types::hash::{Hashable, H256};
 use crate::types::transaction::SignedTransaction;
-use crate::blockchain::Blockchain;
+use crate::blockchain::{State, Blockchain};
 use std::collections::VecDeque;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -83,7 +83,21 @@ impl Worker {
             });
         }
     }
-
+    pub fn validate_mempool(&self, tx_set: Vec<SignedTransaction>, curr_state: State) -> Vec<H256>{
+        let accounts = curr_state.get_accounts();
+        let mut tx_delete = vec![];
+        for transaction in tx_set {
+            let tx_sender = transaction.t.sender;
+            let tx_sender_nonce = transaction.t.nonce;
+            if accounts.contains_key(&tx_sender){
+                let state_account_nonce = accounts.get(&tx_sender).unwrap().0;
+                if state_account_nonce <= tx_sender_nonce {
+                    tx_delete.push(transaction.hash().clone());
+                }
+            }
+        }
+        tx_delete        
+    }
     fn worker_loop(&self) {
         loop {
             let result = smol::block_on(self.msg_chan.recv());
@@ -94,8 +108,6 @@ impl Worker {
             let msg = result.unwrap();
             let (msg, mut peer) = msg;
             let msg: Message = bincode::deserialize(&msg).unwrap();
-            let mut blockchain = self.blockchain.lock().unwrap();
-            // println!("{:?}", blockchain.get_tip_height());
             let mut buffer = OrphanBuffer::new();
             match msg {
                 Message::Ping(nonce) => {
@@ -107,13 +119,15 @@ impl Worker {
                 }
                 Message::NewBlockHashes(hashes) => {
                     // if hashes are not in blockchain, send the following:
+                    println!("new block hashes");
                     let mut new_hashes : Vec<H256> = Vec::new();
                     for hash in hashes{
                         // if blockchain doesn't contain a hash, add it to new hashes
-                        if !blockchain.contains(&hash){
+                        if !self.blockchain.lock().unwrap().contains(&hash){
                             new_hashes.push(hash);
                         }
                     }
+                    println!("looped through hashes in new blocks");
                     // ask for hashes the local miner doesn't have
                     if new_hashes.len() != 0 {
                         peer.write(Message::GetBlocks(new_hashes.clone()));
@@ -124,7 +138,7 @@ impl Worker {
                     // if hashes are in blockchain, get blocks and send out a message with them
                     let mut blocks: Vec<Block> = Vec::new();
                     for hash in hashes{
-                        match blockchain.get_block(&hash) {
+                        match self.blockchain.lock().unwrap().get_block(&hash) {
                             Some(block) => blocks.push(block),
                             _ => {}
                         }
@@ -136,32 +150,53 @@ impl Worker {
                 Message::Blocks(blocks) => {
                     // add these blocks to blockchain if they're not already in it, noting the ones that are new
                     let mut new_blocks : Vec<Block> = Vec::new();
+                    println!("entering blocks");
                     for block in blocks{
                         let hash : H256 = block.hash();
-                        // PoW Validity Check:
-                        if !blockchain.contains(&block.get_parent()){
-                            // add block to buffer
+                        // PoW Validity Check
+                        if block.hash() > block.get_difficulty(){
+                            continue;
+                        }
+                        { let blockchain = self.blockchain.lock().unwrap();
+                            if blockchain.contains(&hash){
+                                continue;
+                            }
+                            println!("entering if statement");
+                        };
+                        // check if blockchain has block's parent, add to buffer if it doesn't
+                        println!("blocks message 3");
+                        if !self.blockchain.lock().unwrap().contains(&block.get_parent()){
                             buffer.add(block.clone(), block.get_parent());
                             // broadcast that we're missing a block's parent
                             peer.write(Message::GetBlocks(vec![block.get_parent()]));
                             self.server.broadcast(Message::GetBlocks(vec![block.get_parent()]));
                         }
                         else{
-                            let parent : Block = blockchain.get_block(&block.get_parent()).unwrap();
-                            if block.hash() <= block.get_difficulty() && block.get_difficulty() == parent.get_difficulty(){
-                                if !blockchain.contains(&parent.hash()){
 
+                            // verify block's validity and add it to chain
+                            {
+                            println!("blocks message 4");
+                            let mut blockchain = self.blockchain.lock().unwrap();
+                            let mut mempool = self.mempool.lock().unwrap();
+                            println!("blocks message 5");
+                            if blockchain.verify_block(&block) && blockchain.block_state.contains_key(&block.get_parent()){
+                                println!("receiving blocks");
+                                let valid_block = blockchain.update_state(&block);
+                                if !valid_block {
+                                    continue;
                                 }
-                                else{
-                                    // add block to chain
-                                    if !blockchain.contains(&hash){
-                                        blockchain.insert(&block);
-                                        for transaction in block.get_content(){
-                                            self.mempool.lock().unwrap().remove(&transaction.hash());
-                                        }
-                                        new_blocks.push(block.clone());
-                                    }
+                                blockchain.insert(&block);
+                                for transaction in block.get_content(){
+                                    mempool.remove(&transaction.hash());
                                 }
+                                let state = blockchain.get_state(&block);
+                                println!("State After Insertion: {:?}",state);
+                                let tx_set : Vec<SignedTransaction> = mempool.values().cloned().collect();
+                                let tx_delete = self.validate_mempool(tx_set, state);
+                                for tx_hash in tx_delete{
+                                    mempool.remove(&tx_hash);
+                                }
+                                new_blocks.push(block.clone());
                                 // do this iteratively
                                 // check if the block is a parent in the buffer, iteratively add all blocks
                                 if buffer.contains(hash){
@@ -172,9 +207,19 @@ impl Worker {
                                     }
                                     while !orphans.is_empty(){
                                         let temp_block = orphans.pop_front().unwrap();
-                                        blockchain.insert(&temp_block);
+                                        if blockchain.verify_block(&temp_block){
+                                            blockchain.update_state(&temp_block);
+                                            blockchain.insert(&temp_block);
+                                            // need to validate the mempool everytime we update the state
+                                            let tx_set : Vec<SignedTransaction> = mempool.values().cloned().collect();
+                                            let tx_delete = self.validate_mempool(tx_set, blockchain.get_state(&block));
+                                            for tx_hash in tx_delete {
+                                                mempool.remove(&tx_hash);
+                                            }
+                                        }
                                         for transaction in block.get_content(){
-                                            self.mempool.lock().unwrap().remove(&transaction.hash());
+                                            mempool.remove(&transaction.hash());
+                                            
                                         }
                                         new_blocks.push(temp_block.clone());
                                         if buffer.contains(temp_block.hash()){
@@ -183,13 +228,13 @@ impl Worker {
                                                 orphans.push_back(block.clone());
                                             }
                                         }
-                                    
                                     }
                                 }
                             }
+                            };
                         }
                     }
-                    
+ 
                     // then get the hashes of the blocks that are new
                     let mut new_hashes : Vec<H256> = Vec::new();
                     for block in new_blocks {
@@ -198,7 +243,6 @@ impl Worker {
                     // and broadcast these new hash blocks
                     peer.write(Message::NewBlockHashes(new_hashes.clone()));
                     self.server.broadcast(Message::NewBlockHashes(new_hashes));
-                        
                 }
                 Message::NewTransactionHashes(hashes) => {
                     let mut new_hashes : Vec<H256> = Vec::new();
@@ -234,12 +278,13 @@ impl Worker {
                 Message::Transactions(transactions) => {
                     // add these blocks to blockchain if they're not already in it, noting the ones that are new
                     let mut new_transactions : Vec<SignedTransaction> = Vec::new();
+                    let mut b = self.blockchain.lock().unwrap();
+                    let mut m = self.mempool.lock().unwrap();
                     for transaction in transactions{
                         let hash : H256 = transaction.hash();
-                        if transaction.verify(){
-                            {let mut m = self.mempool.lock().unwrap();
-                                m.insert(transaction.hash(), transaction.clone());
-                            };
+                        let curr_state = b.get_tip_state();
+                        if transaction.verify(&curr_state){
+                            m.insert(transaction.hash(), transaction.clone());
                             new_transactions.push(transaction.clone());
                         }
                     }
@@ -248,13 +293,15 @@ impl Worker {
                     for transaction in new_transactions {
                         new_hashes.push(transaction.hash());
                     }
+                    drop(b);
+                    drop(m);
+
                     // and broadcast these new hash blocks
                     peer.write(Message::NewBlockHashes(new_hashes.clone()));
                     self.server.broadcast(Message::NewBlockHashes(new_hashes));
                 }
                 _ =>{}
             }
-
         }
     }
 }

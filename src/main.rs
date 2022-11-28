@@ -9,12 +9,15 @@ pub mod network;
 pub mod types;
 pub mod transaction_generator;
 use std::collections::HashMap;
+use crate::types::key_pair;
+use crate::types::address::Address;
 use types::transaction::{SignedTransaction, Transaction};
 use types::hash::{Hashable, H256};
 use api::Server as ApiServer;
 use blockchain::Blockchain;
 use clap::clap_app;
 use log::{error, info};
+use ring::signature::KeyPair;
 use smol::channel;
 use std::net;
 use std::process;
@@ -34,7 +37,11 @@ fn main() {
      (@arg p2p_workers: --("p2p-workers") [INT] default_value("4") "Sets the number of worker threads for P2P server")
     )
     .get_matches();
-
+    // create random account addresses for the tx_generator to use to make valid transactions
+    // remember that on different processes, we want different key pairs. Therefore, randomly generate the key pairs
+    // let key_pair_1 = key_pair::random();
+    // let key_pair_2 = key_pair::random();
+    // let key_pair_3 = key_pair::random();
     // init logger
     let verbosity = matches.occurrences_of("verbose") as usize;
     stderrlog::new().verbosity(verbosity).init().unwrap();
@@ -50,7 +57,20 @@ fn main() {
             error!("Error parsing P2P server address: {}", e);
             process::exit(1);
         });
-
+     let seed : [u8;32] = {
+         if p2p_addr == "127.0.0.1:6000".parse::<net::SocketAddr>().unwrap(){
+             [0;32]
+         }
+         else if p2p_addr == "127.0.0.1:6001".parse::<net::SocketAddr>().unwrap(){
+             [1;32]
+         }
+         else {
+             [2;32]
+         }
+     };
+     let key_pair = key_pair::from_seed(seed);
+     println!("Key Pair: {:?}", key_pair);
+     println!("Seed: {:?}", seed);
     // parse api server address
     let api_addr = matches
         .value_of("api_addr")
@@ -84,7 +104,7 @@ fn main() {
     // start the miner
     let (miner_ctx, miner, finished_block_chan) = miner::new(&blockchain, &mempool);
     let miner_worker_ctx = miner::worker::Worker::new(&blockchain,&mempool, &server, finished_block_chan);
-    let (tx_generator_ctx, tx_generator) = transaction_generator::new(&blockchain, &mempool, &server);
+    let (tx_generator_ctx, tx_generator) = transaction_generator::new(&blockchain, &mempool, &server, key_pair);
  
     miner_ctx.start();
     miner_worker_ctx.start();

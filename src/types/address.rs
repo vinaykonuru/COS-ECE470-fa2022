@@ -1,5 +1,6 @@
 use ring::digest;
 use serde::{Deserialize, Serialize};
+use rand::{thread_rng, Rng};
 
 // 20-byte address
 #[derive(Eq, PartialEq, Serialize, Deserialize, Clone, Hash, Default, Copy)]
@@ -8,6 +9,20 @@ pub struct Address([u8; 20]);
 impl Address {
     pub fn new(addr: [u8; 20]) -> Self {
         Address(addr)
+    }
+    pub fn random() -> Self {
+        let mut addr_arr: [u8; 20] = [0; 20];
+        let mut rng = thread_rng();
+        let mut count = 0;
+        loop {
+            addr_arr[count] = rng.gen();
+
+            if (count >= 19) {
+                break;
+            }
+            count += 1;
+        }
+        Address(addr_arr)
     }
 }
 impl std::convert::From<&[u8; 20]> for Address {

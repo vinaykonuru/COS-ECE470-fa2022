@@ -10,7 +10,7 @@ use crate::types::transaction::SignedTransaction;
 use crossbeam::channel::{unbounded, Receiver, Sender, TryRecvError};
 use rand::{thread_rng, Rng};
 use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
+use std::collections::{HashSet, HashMap};
 use std::thread;
 use std::time;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -111,10 +111,6 @@ impl Context {
             .get_block(&parent)
             .unwrap()
             .get_difficulty();
-        let mut content_keys: Vec<H256> = vec![];
-        let mut content: Vec<SignedTransaction> = vec![];
-        data = vec![];
-
 
         loop {
             // check and react to control signals
@@ -163,37 +159,52 @@ impl Context {
                 return;
             }
 
-            // TODO for student: actual mining, create a block
             // build a block
             timestamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_millis();
-            {let m = self.mempool.lock().unwrap();
-            for (key, transaction) in m.iter(){
-                if content.len() == 3{
+            let mut content: Vec<SignedTransaction> = vec![];
+            let mut data = vec![];
+            let mut tx_tracker = HashSet::new();
+            println!("in miner");
+            let mut b = self.blockchain.lock().unwrap();
+            println!("after blockchain, before mempool");
+            let mut m = self.mempool.lock().unwrap();
+            println!("after mempool");
+            for (hash, transaction) in m.iter(){
+                if content.len() == 3 {
                     break;
                 }
-                content_keys.push(key.clone());
-                content.push(transaction.clone());
-                data.push(transaction.hash());
+                let mut pub_key = &transaction.pub_key;
+                let mut state = b.get_tip_state();
+                if transaction.verify(&state) {
+                    if !tx_tracker.contains(&pub_key.clone()) {
+                        tx_tracker.insert(pub_key.clone());
+                        content.push(transaction.clone());
+                        data.push(hash.clone());
+                    }
+                }
             }
-            };
-
+            drop(b);
+            drop(m);
             merkle_root = MerkleTree::new(&data).root();
 
             let nonce: u32 = rng.gen();
 
             let block: Block =
                 Block::new(parent, nonce, timestamp, difficulty, merkle_root, content.clone());
-            
-            if block.hash() <= difficulty {
+            if block.hash() <= difficulty && !data.is_empty(){
                 self.finished_block_chan.send(block.clone()).unwrap(); // this will handle placing it into the blockchain
+                for tx_hash in data{
+                    self.mempool.lock().unwrap().remove(&tx_hash);
+                    // println!("Size of mempool after removal: {:?}", m.keys().len());
+                }
                 parent = block.hash();
             }
-            content_keys = vec![];
-            content = vec![];
-            data = vec![];
+
+            // println!("Size of mempool: {:?}", m.keys().len());
+
             if let OperatingState::Run(i) = self.operating_state {
                 if i != 0 {
                     let interval = time::Duration::from_micros(i as u64);

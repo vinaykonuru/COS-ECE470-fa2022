@@ -1,14 +1,17 @@
 use log::info;
-use crate::blockchain::Blockchain;
+use crate::blockchain::{State, Blockchain};
 use crate::types::block::Block;
 use crate::types::hash::{Hashable, H256};
 use crate::types::merkle::MerkleTree;
 use crate::types::transaction;
+use crate::types::address::Address;
 use crate::types::transaction::SignedTransaction;
 use crate::network::server::Handle as ServerHandle;
 use crate::network::message::Message;
+use crate::types::key_pair;
 use crossbeam::channel::{unbounded, Receiver, Sender, TryRecvError};
 use rand::{thread_rng, Rng};
+use ring::signature::{KeyPair, Ed25519KeyPair};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use std::thread;
@@ -32,6 +35,7 @@ pub struct Context {
     blockchain: Arc<Mutex<Blockchain>>,
     mempool: Arc<Mutex<HashMap<H256, SignedTransaction>>>,
     server: ServerHandle,
+    key_pair: Ed25519KeyPair,
     control_chan: Receiver<ControlSignal>,
     operating_state: OperatingState,
 }
@@ -42,7 +46,7 @@ pub struct Handle {
     control_chan: Sender<ControlSignal>,
 }
 
-pub fn new(blockchain: &Arc<Mutex<Blockchain>>, mempool: &Arc<Mutex<HashMap<H256,SignedTransaction>>>, server: &ServerHandle) -> (Context, Handle) {
+pub fn new(blockchain: &Arc<Mutex<Blockchain>>, mempool: &Arc<Mutex<HashMap<H256,SignedTransaction>>>, server: &ServerHandle, key_pair: Ed25519KeyPair) -> (Context, Handle) {
     let (signal_chan_sender, signal_chan_receiver) = unbounded();
     let blockchain = Arc::clone(blockchain);
     let mempool = Arc::clone(mempool);
@@ -50,10 +54,10 @@ pub fn new(blockchain: &Arc<Mutex<Blockchain>>, mempool: &Arc<Mutex<HashMap<H256
         blockchain: blockchain,
         mempool: mempool,
         server: server.clone(),
+        key_pair: key_pair,
         control_chan: signal_chan_receiver,
         operating_state: OperatingState::Paused,
     };
-
     let handle = Handle {
         control_chan: signal_chan_sender,
     };
@@ -143,16 +147,37 @@ impl Context {
             if let OperatingState::ShutDown = self.operating_state {
                 return;
             }
+            let mut b = self.blockchain.lock().unwrap();
+            let mut m = self.mempool.lock().unwrap();
+            let mut rng = thread_rng();
+            let public_keys : Vec<Address> = b.get_tip_state().get_accounts().keys().cloned().collect();
+            let sender_key_pair = &self.key_pair;
+            let receiver_addr = &public_keys[rng.gen_range(0..=2)];
+            drop(b);
+            drop(m);
+
+            let state = 
+            {let mut b = self.blockchain.lock().unwrap();
+                b.get_tip_state()
+            };
+            let sender_addr = Address::from_public_key_bytes(sender_key_pair.public_key().as_ref());
+            let (sender_nonce, sender_bal) = state.get_accounts().get(&sender_addr).unwrap().clone();
+            
+            if sender_bal > 1 {
+                let random_transaction = transaction::generate_signed_transaction(sender_key_pair, &receiver_addr, &sender_nonce, &sender_bal);
+                {let mut m = self.mempool.lock().unwrap();
+                    println!("inserting to mempool: {:?}", m.len());
+                    m.insert(random_transaction.hash(), random_transaction.clone());
+                }
+                
+
+                self.server.broadcast(Message::NewTransactionHashes(vec![random_transaction.hash()]))
+            }
+            
             if let OperatingState::Run(i) = self.operating_state {
                 if i != 0 {
                     let interval = time::Duration::from_micros(i as u64);
-                    thread::sleep(interval * 100);
-                    let random_transaction = transaction::generate_signed_transaction();
-                    // println!("{:?}", random_transaction.hash());
-                    {let mut m = self.mempool.lock().unwrap();
-                        m.insert(random_transaction.hash(),random_transaction.clone());
-                    };
-                    self.server.broadcast(Message::NewTransactionHashes(vec![random_transaction.hash()]))
+                    thread::sleep(interval * 10000);                    
                 }
             }
         }
