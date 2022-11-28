@@ -119,7 +119,6 @@ impl Worker {
                 }
                 Message::NewBlockHashes(hashes) => {
                     // if hashes are not in blockchain, send the following:
-                    println!("new block hashes");
                     let mut new_hashes : Vec<H256> = Vec::new();
                     for hash in hashes{
                         // if blockchain doesn't contain a hash, add it to new hashes
@@ -127,7 +126,6 @@ impl Worker {
                             new_hashes.push(hash);
                         }
                     }
-                    println!("looped through hashes in new blocks");
                     // ask for hashes the local miner doesn't have
                     if new_hashes.len() != 0 {
                         peer.write(Message::GetBlocks(new_hashes.clone()));
@@ -150,7 +148,6 @@ impl Worker {
                 Message::Blocks(blocks) => {
                     // add these blocks to blockchain if they're not already in it, noting the ones that are new
                     let mut new_blocks : Vec<Block> = Vec::new();
-                    println!("entering blocks");
                     for block in blocks{
                         let hash : H256 = block.hash();
                         // PoW Validity Check
@@ -161,10 +158,8 @@ impl Worker {
                             if blockchain.contains(&hash){
                                 continue;
                             }
-                            println!("entering if statement");
                         };
                         // check if blockchain has block's parent, add to buffer if it doesn't
-                        println!("blocks message 3");
                         if !self.blockchain.lock().unwrap().contains(&block.get_parent()){
                             buffer.add(block.clone(), block.get_parent());
                             // broadcast that we're missing a block's parent
@@ -175,12 +170,9 @@ impl Worker {
 
                             // verify block's validity and add it to chain
                             {
-                            println!("blocks message 4");
                             let mut blockchain = self.blockchain.lock().unwrap();
                             let mut mempool = self.mempool.lock().unwrap();
-                            println!("blocks message 5");
                             if blockchain.verify_block(&block) && blockchain.block_state.contains_key(&block.get_parent()){
-                                println!("receiving blocks");
                                 let valid_block = blockchain.update_state(&block);
                                 if !valid_block {
                                     continue;

@@ -47,7 +47,7 @@ impl Blockchain {
         let mut merkle_root: H256 = [0; 32].into();
         merkle_root = merkle_root.hash();
         // arbitrary difficulty
-        let difficulty: H256 = [10; 32].into();
+        let difficulty: H256 = [1; 32].into();
         println!("difficulty: {:?}", difficulty);
         // current timestamp
         let timestamp : u128 = 0;
@@ -236,7 +236,7 @@ impl Blockchain {
         let state : &State = &self.block_state.get(&curr_block.hash()).unwrap().clone();
         let mut state_vec : Vec<(Address, usize, usize)> = vec![];
         for (account, value) in &state.accounts{
-            state_vec.push((account.clone(), value.0.clone(), value.1.clone());
+            state_vec.push((account.clone(), value.0.clone(), value.1.clone()));
         }
         state_vec
     }

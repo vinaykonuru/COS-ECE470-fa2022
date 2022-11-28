@@ -167,11 +167,8 @@ impl Context {
             let mut content: Vec<SignedTransaction> = vec![];
             let mut data = vec![];
             let mut tx_tracker = HashSet::new();
-            println!("in miner");
             let mut b = self.blockchain.lock().unwrap();
-            println!("after blockchain, before mempool");
             let mut m = self.mempool.lock().unwrap();
-            println!("after mempool");
             for (hash, transaction) in m.iter(){
                 if content.len() == 3 {
                     break;
