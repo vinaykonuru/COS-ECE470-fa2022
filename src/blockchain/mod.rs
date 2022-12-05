@@ -47,7 +47,7 @@ impl Blockchain {
         let mut merkle_root: H256 = [0; 32].into();
         merkle_root = merkle_root.hash();
         // arbitrary difficulty
-        let difficulty: H256 = [1; 32].into();
+        let difficulty: H256 = [2; 32].into();
         println!("difficulty: {:?}", difficulty);
         // current timestamp
         let timestamp : u128 = 0;
