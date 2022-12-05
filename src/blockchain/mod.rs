@@ -221,6 +221,9 @@ impl Blockchain {
     }
     pub fn state_at_block(&self, block_num: usize) -> Vec<(Address, usize, usize)> {
         let longest_chain_len: usize = self.get_tip_height() + 1;
+        if block_num > longest_chain_len{
+            return vec![];
+        }
         let mut len = longest_chain_len.clone();
         let mut curr_block = self.head();
         let mut parent_hash: H256;
