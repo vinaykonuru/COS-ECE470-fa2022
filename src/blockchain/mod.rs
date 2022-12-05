@@ -220,7 +220,7 @@ impl Blockchain {
         list
     }
     pub fn state_at_block(&self, block_num: usize) -> Vec<(Address, usize, usize)> {
-        let longest_chain_len: usize = self.get_tip_height() + 1;
+        let longest_chain_len: usize = self.get_tip_height();
         if block_num > longest_chain_len{
             return vec![];
         }
